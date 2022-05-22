@@ -1,0 +1,225 @@
+package com.burhan.mscameraxsampleapp
+
+import android.Manifest
+import android.content.ContentValues
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.provider.MediaStore
+import android.util.Log
+import android.view.MotionEvent
+import android.view.View
+import android.widget.Toast
+import android.view.View.OnTouchListener
+import android.widget.Button
+import android.widget.ImageButton
+import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.burhan.mscameraxsampleapp.databinding.ActivityMainBinding
+import java.text.SimpleDateFormat
+import java.util.*
+
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+    private var imageCapture: ImageCapture? = null
+    private var camera: Camera? = null
+
+    private lateinit var viewFinder : View
+    private lateinit var btnTakePhoto : ImageButton
+    private lateinit var flashToggleButton : ImageButton
+    private lateinit var zoomPlusButton : ImageButton
+    private lateinit var zoomMinusButton : ImageButton
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        viewFinder= binding.viewFinder
+        btnTakePhoto = binding.btnTakePhoto
+        flashToggleButton = binding.flashToggleButton
+        zoomPlusButton = binding.zoomPlusButton
+        zoomMinusButton = binding.zoomMinusButton
+
+
+        if (allPermissionGranted()) {
+            startCamera()
+        } else {
+            ActivityCompat.requestPermissions(
+                this, Constants.REQUIRED_PERMISSION, Constants.REQUEST_CODE_PERMISSIONS
+            )
+        }
+
+        // Take photo when capture button is click.
+        btnTakePhoto.setOnClickListener {
+            takePhoto()
+        }
+
+        // Toggle the flash light.
+        flashToggleButton.setOnClickListener {
+            toggleFlash()
+        }
+
+        zoomMinusButton.setOnClickListener{
+            adjustZoom(false)
+        }
+
+        zoomPlusButton.setOnClickListener{
+            adjustZoom(true)
+        }
+
+    }
+
+    private fun toggleFlash() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener(Runnable {
+
+            val cameraControl = camera?.cameraControl
+            val cameraInfo = camera?.cameraInfo
+
+            val currFlashStatus = cameraInfo?.getTorchState()
+
+            if (currFlashStatus?.value == 1) {
+                cameraControl?.enableTorch(false)
+            } else {
+                cameraControl?.enableTorch(true)
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun adjustZoom(inc: Boolean){
+
+        val cameraControl = camera?.cameraControl
+        val cameraInfo = camera?.cameraInfo
+
+        val maxZoom = cameraInfo?.zoomState?.value?.maxZoomRatio
+        val minZoom = cameraInfo?.zoomState?.value?.minZoomRatio
+
+        val currZoom = cameraInfo?.zoomState?.value?.zoomRatio
+
+        if(inc){
+            if(currZoom == maxZoom){
+                Toast.makeText(this,"Cannot zoom in further",Toast.LENGTH_SHORT).show()
+            }
+            if (currZoom != null) {
+                if (maxZoom != null) {
+                    cameraControl?.setZoomRatio((currZoom+(maxZoom- minZoom!!)/10.0).toFloat())
+                }
+            }
+        }else{
+            if(currZoom == minZoom){
+                Toast.makeText(this,"Cannot zoom out further",Toast.LENGTH_SHORT).show()
+            }
+            if (currZoom != null) {
+                if (maxZoom != null) {
+                    cameraControl?.setZoomRatio((currZoom-(maxZoom- minZoom!!)/10.0).toFloat())
+                }
+            }
+        }
+
+    }
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener(Runnable {
+
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+            val preview: Preview = Preview.Builder().build()
+
+            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            imageCapture = ImageCapture.Builder().build()
+
+            try {
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+            } catch (e: Exception) {
+                Log.d(Constants.TAG, "StartCamera Fail:", e)
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun takePhoto() {
+        val imageCapture = imageCapture ?: return
+
+        val name = SimpleDateFormat(Constants.FILE_NAME_FORMAT, Locale.getDefault())
+            .format(System.currentTimeMillis())
+
+        val contentValues = ContentValues()
+        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            contentValues.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/CameraX-Image")
+        }
+
+        val outputOption = ImageCapture.OutputFileOptions.Builder(
+            contentResolver,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ).build()
+
+        imageCapture.takePicture(
+            outputOption,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onError(exc: ImageCaptureException) {
+                    Log.e(Constants.TAG, "Photo capture failed: ${exc.message}", exc)
+                }
+
+                override fun onImageSaved(output: ImageCapture.OutputFileResults){
+                    val msg = "Photo capture succeeded: ${output.savedUri}"
+                    Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
+                    Log.d(Constants.TAG, msg)
+                }
+            }
+        )
+
+    }
+
+    private fun allPermissionGranted(): Boolean {
+        for (permission in Constants.REQUIRED_PERMISSION) {
+            if (ActivityCompat.checkSelfPermission(
+                    baseContext,
+                    permission
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return false
+            }
+        }
+        return true
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == Constants.REQUEST_CODE_PERMISSIONS) {
+            if (allPermissionGranted()) {
+                startCamera()
+            } else {
+                Toast.makeText(this, "Permission not Grantes", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    object Constants {
+        const val TAG = "cameraX"
+        const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-sss"
+        const val REQUEST_CODE_PERMISSIONS = 123
+        val REQUIRED_PERMISSION = arrayOf(Manifest.permission.CAMERA)
+
+    }
+}
+
