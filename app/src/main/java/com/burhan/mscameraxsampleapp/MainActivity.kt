@@ -13,6 +13,8 @@ import android.widget.Toast
 import android.view.View.OnTouchListener
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.SeekBar
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -27,13 +29,14 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var imageCapture: ImageCapture? = null
-    private var camera: Camera? = null
+    private  var camera: Camera? = null
 
     private lateinit var viewFinder : View
     private lateinit var btnTakePhoto : ImageButton
     private lateinit var flashToggleButton : ImageButton
     private lateinit var zoomPlusButton : ImageButton
     private lateinit var zoomMinusButton : ImageButton
+    private lateinit var exposureSeekbar : SeekBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +48,7 @@ class MainActivity : AppCompatActivity() {
         flashToggleButton = binding.flashToggleButton
         zoomPlusButton = binding.zoomPlusButton
         zoomMinusButton = binding.zoomMinusButton
+        exposureSeekbar = binding.exposureSeekBar
 
 
         if (allPermissionGranted()) {
@@ -53,24 +57,6 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(
                 this, Constants.REQUIRED_PERMISSION, Constants.REQUEST_CODE_PERMISSIONS
             )
-        }
-
-        // Take photo when capture button is click.
-        btnTakePhoto.setOnClickListener {
-            takePhoto()
-        }
-
-        // Toggle the flash light.
-        flashToggleButton.setOnClickListener {
-            toggleFlash()
-        }
-
-        zoomMinusButton.setOnClickListener{
-            adjustZoom(false)
-        }
-
-        zoomPlusButton.setOnClickListener{
-            adjustZoom(true)
         }
 
     }
@@ -141,11 +127,75 @@ class MainActivity : AppCompatActivity() {
             try {
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                startOtherFunctionality()
             } catch (e: Exception) {
                 Log.d(Constants.TAG, "StartCamera Fail:", e)
             }
 
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun startOtherFunctionality(){
+        // Take photo when capture button is click.
+        btnTakePhoto.setOnClickListener {
+            takePhoto()
+        }
+
+        // Toggle the flash light.
+        flashToggleButton.setOnClickListener {
+            toggleFlash()
+        }
+
+        zoomMinusButton.setOnClickListener{
+            adjustZoom(false)
+        }
+
+        zoomPlusButton.setOnClickListener{
+            adjustZoom(true)
+        }
+
+//        Log.d(Constants.TAG, "onCreate: ${camera}")
+
+        var exposureState = camera?.cameraInfo?.exposureState
+        binding.exposureSeekBar
+
+        val isEnabled = exposureState?.isExposureCompensationSupported
+        val maxExposure = exposureState?.exposureCompensationRange?.upper
+        val minExposure = exposureState?.exposureCompensationRange?.lower
+        val progressExposure = exposureState?.exposureCompensationIndex
+
+        Toast.makeText(this,"maxExposure : ${maxExposure}",Toast.LENGTH_SHORT).show()
+
+
+        exposureSeekbar.max = maxExposure?:0
+        exposureSeekbar.progress = progressExposure?:0
+
+        exposureSeekbar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            @RequiresApi(Build.VERSION_CODES.P)
+
+            var startPoint = 0
+            var endPoint = 0
+
+            override fun onProgressChanged(p0: SeekBar?, currentValue: Int, p2: Boolean) {
+                camera?.cameraControl?.setExposureCompensationIndex(currentValue)
+            }
+
+            override fun onStartTrackingTouch(p0: SeekBar?) {
+                if (p0 != null) {
+                    startPoint = p0.progress
+                }
+            }
+
+            override fun onStopTrackingTouch(p0: SeekBar?) {
+                if (p0 != null) {
+                    endPoint = p0.progress
+                }
+            }
+
+        })
+    
+
+
     }
 
     private fun takePhoto() {
@@ -209,7 +259,7 @@ class MainActivity : AppCompatActivity() {
             if (allPermissionGranted()) {
                 startCamera()
             } else {
-                Toast.makeText(this, "Permission not Grantes", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Permission not Granted", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -218,7 +268,7 @@ class MainActivity : AppCompatActivity() {
         const val TAG = "cameraX"
         const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-sss"
         const val REQUEST_CODE_PERMISSIONS = 123
-        val REQUIRED_PERMISSION = arrayOf(Manifest.permission.CAMERA)
+        val REQUIRED_PERMISSION = arrayOf(Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE)
 
     }
 }
