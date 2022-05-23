@@ -10,13 +10,13 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
-import android.view.View.OnTouchListener
-import android.widget.Button
 import android.widget.ImageButton
 import android.widget.SeekBar
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
+import androidx.camera.extensions.ExtensionMode
+import androidx.camera.extensions.ExtensionsManager
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var zoomMinusButton : ImageButton
     private lateinit var exposureSeekbar : SeekBar
 
+    @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -63,12 +64,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggleFlash() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener(Runnable {
+        cameraProviderFuture.addListener({
 
             val cameraControl = camera?.cameraControl
             val cameraInfo = camera?.cameraInfo
 
-            val currFlashStatus = cameraInfo?.getTorchState()
+            val currFlashStatus = cameraInfo?.torchState
 
             if (currFlashStatus?.value == 1) {
                 cameraControl?.enableTorch(false)
@@ -111,17 +112,40 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
-        cameraProviderFuture.addListener(Runnable {
+        cameraProviderFuture.addListener({
 
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
             val preview: Preview = Preview.Builder().build()
 
-            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
+            // For Bokeh Mode.
+            val future = ExtensionsManager.getInstanceAsync(this, cameraProvider)
+            future.addListener({
+                val extensionsManager = future.get()
+                if (extensionsManager.isExtensionAvailable(
+                                cameraSelector,
+                                ExtensionMode.BOKEH
+                        )) {
+                    val bokehCameraSelector = extensionsManager.getExtensionEnabledCameraSelector(
+                            cameraSelector,
+                            ExtensionMode.BOKEH
+                    )
+                    cameraSelector = bokehCameraSelector
+                    Toast.makeText(this,"Bokeh Mode Enabled.",Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Bokeh Extension Not Available!!", Toast.LENGTH_SHORT).show()
+                }
+
+            }, ContextCompat.getMainExecutor(baseContext))
+
+            Log.d(Constants.TAG, "startCamera: $cameraSelector")
+
+            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
             imageCapture = ImageCapture.Builder().build()
 
             try {
@@ -134,6 +158,7 @@ class MainActivity : AppCompatActivity() {
 
         }, ContextCompat.getMainExecutor(this))
     }
+
 
     private fun startOtherFunctionality(){
         // Take photo when capture button is click.
@@ -154,8 +179,6 @@ class MainActivity : AppCompatActivity() {
             adjustZoom(true)
         }
 
-//        Log.d(Constants.TAG, "onCreate: ${camera}")
-
         var exposureState = camera?.cameraInfo?.exposureState
         binding.exposureSeekBar
 
@@ -163,9 +186,6 @@ class MainActivity : AppCompatActivity() {
         val maxExposure = exposureState?.exposureCompensationRange?.upper
         val minExposure = exposureState?.exposureCompensationRange?.lower
         val progressExposure = exposureState?.exposureCompensationIndex
-
-        Toast.makeText(this,"maxExposure : ${maxExposure}",Toast.LENGTH_SHORT).show()
-
 
         exposureSeekbar.max = maxExposure?:0
         exposureSeekbar.progress = progressExposure?:0
@@ -272,6 +292,7 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    @RequiresApi(Build.VERSION_CODES.P)
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
