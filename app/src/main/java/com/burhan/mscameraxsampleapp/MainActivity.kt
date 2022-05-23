@@ -194,7 +194,30 @@ class MainActivity : AppCompatActivity() {
 
         })
     
+        viewFinder.setOnTouchListener(object : View.OnTouchListener {
+            override fun onTouch(v: View?, event: MotionEvent): Boolean {
+                Log.d(Constants.TAG, "onTouch: ${event.x}")
 
+                val meteringPoint = binding.viewFinder.meteringPointFactory
+                        .createPoint(event.x,event.y)
+
+                val action = FocusMeteringAction.Builder(meteringPoint).build()
+                val result = camera?.cameraControl?.startFocusAndMetering(action)
+
+                result?.addListener({
+                    val isFocusSuccessful = result.get().isFocusSuccessful
+                    if(isFocusSuccessful){
+                        Toast.makeText(this@MainActivity,"Focusing",Toast.LENGTH_SHORT).show()
+                    }else{
+                        Toast.makeText(this@MainActivity,"Unable to Focusing",Toast.LENGTH_SHORT).show()
+                    }
+
+                },ContextCompat.getMainExecutor(this@MainActivity))
+
+
+                return v?.onTouchEvent(event) ?: true
+            }
+        })
 
     }
 
