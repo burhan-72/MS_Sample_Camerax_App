@@ -7,8 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.view.MotionEvent
-import android.view.View
+import android.view.*
 import android.widget.Toast
 import android.widget.ImageButton
 import android.widget.SeekBar
@@ -21,6 +20,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.burhan.mscameraxsampleapp.databinding.ActivityMainBinding
+
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -51,6 +51,23 @@ class MainActivity : AppCompatActivity() {
         zoomMinusButton = binding.zoomMinusButton
         exposureSeekbar = binding.exposureSeekBar
 
+        supportActionBar?.hide()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let {
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                window.navigationBarColor = getColor(R.color.white)
+
+                it.hide(WindowInsets.Type.systemBars())
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN)
+        }
 
         if (allPermissionGranted()) {
             startCamera()
@@ -59,7 +76,6 @@ class MainActivity : AppCompatActivity() {
                 this, Constants.REQUIRED_PERMISSION, Constants.REQUEST_CODE_PERMISSIONS
             )
         }
-
     }
 
     private fun toggleFlash() {
@@ -68,7 +84,6 @@ class MainActivity : AppCompatActivity() {
 
             val cameraControl = camera?.cameraControl
             val cameraInfo = camera?.cameraInfo
-
             val currFlashStatus = cameraInfo?.torchState
 
             if (currFlashStatus?.value == 1) {
@@ -76,7 +91,6 @@ class MainActivity : AppCompatActivity() {
             } else {
                 cameraControl?.enableTorch(true)
             }
-
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -87,7 +101,6 @@ class MainActivity : AppCompatActivity() {
 
         val maxZoom = cameraInfo?.zoomState?.value?.maxZoomRatio
         val minZoom = cameraInfo?.zoomState?.value?.minZoomRatio
-
         val currZoom = cameraInfo?.zoomState?.value?.zoomRatio
 
         if(inc){
@@ -121,7 +134,11 @@ class MainActivity : AppCompatActivity() {
             val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
             val preview: Preview = Preview.Builder().build()
 
+            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+            imageCapture = ImageCapture.Builder().build()
+
             var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            var isBokehExtensionModeAvailable = false
 
             // For Bokeh Mode.
             val future = ExtensionsManager.getInstanceAsync(this, cameraProvider)
@@ -136,7 +153,15 @@ class MainActivity : AppCompatActivity() {
                             ExtensionMode.BOKEH
                     )
                     cameraSelector = bokehCameraSelector
-                    Toast.makeText(this,"Bokeh Mode Enabled.",Toast.LENGTH_SHORT).show()
+                    try {
+                        cameraProvider.unbindAll()
+                        camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                        startOtherFunctionality()
+                        isBokehExtensionModeAvailable = true
+                        Toast.makeText(this,"Bokeh Mode Enabled.",Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Log.d(Constants.TAG, "Bokeh Camera Start Fail:", e)
+                    }
                 } else {
                     Toast.makeText(this, "Bokeh Extension Not Available!!", Toast.LENGTH_SHORT).show()
                 }
@@ -145,17 +170,15 @@ class MainActivity : AppCompatActivity() {
 
             Log.d(Constants.TAG, "startCamera: $cameraSelector")
 
-            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
-            imageCapture = ImageCapture.Builder().build()
-
-            try {
-                cameraProvider.unbindAll()
-                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
-                startOtherFunctionality()
-            } catch (e: Exception) {
-                Log.d(Constants.TAG, "StartCamera Fail:", e)
+            if(!isBokehExtensionModeAvailable){
+                try {
+                    cameraProvider.unbindAll()
+                    camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                    startOtherFunctionality()
+                } catch (e: Exception) {
+                    Log.d(Constants.TAG, "StartCamera Fail:", e)
+                }
             }
-
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -238,11 +261,26 @@ class MainActivity : AppCompatActivity() {
                 return v?.onTouchEvent(event) ?: true
             }
         })
-
     }
 
     private fun takePhoto() {
         val imageCapture = imageCapture ?: return
+
+        val orientationEventListener = object : OrientationEventListener(this){
+            override fun onOrientationChanged(orientation: Int) {
+                val rotation: Int = when (orientation) {
+                    in 45..134 -> Surface.ROTATION_270
+                    in 135..224 -> Surface.ROTATION_180
+                    in 225..314 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+
+                imageCapture.targetRotation = rotation
+            }
+        }
+
+        orientationEventListener.enable()
+
 
         val name = SimpleDateFormat(Constants.FILE_NAME_FORMAT, Locale.getDefault())
             .format(System.currentTimeMillis())
@@ -273,24 +311,29 @@ class MainActivity : AppCompatActivity() {
                     val msg = "Photo capture succeeded: ${output.savedUri}"
                     Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
                     Log.d(Constants.TAG, msg)
+
+                    val apiVersion = Build.VERSION.SDK_INT
+
+
+
                 }
             }
         )
 
     }
 
-    private fun allPermissionGranted(): Boolean {
-        for (permission in Constants.REQUIRED_PERMISSION) {
-            if (ActivityCompat.checkSelfPermission(
-                    baseContext,
-                    permission
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                return false
+        private fun allPermissionGranted(): Boolean {
+            for (permission in Constants.REQUIRED_PERMISSION) {
+                if (ActivityCompat.checkSelfPermission(
+                        baseContext,
+                        permission
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    return false
+                }
             }
+            return true
         }
-        return true
-    }
 
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onRequestPermissionsResult(
@@ -313,7 +356,6 @@ class MainActivity : AppCompatActivity() {
         const val FILE_NAME_FORMAT = "yy-MM-dd-HH-mm-ss-sss"
         const val REQUEST_CODE_PERMISSIONS = 123
         val REQUIRED_PERMISSION = arrayOf(Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE)
-
     }
 }
 
