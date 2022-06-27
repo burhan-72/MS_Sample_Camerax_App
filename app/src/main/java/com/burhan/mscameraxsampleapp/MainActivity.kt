@@ -1,13 +1,16 @@
 package com.burhan.mscameraxsampleapp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.*
+import android.widget.Button
 import android.widget.Toast
 import android.widget.ImageButton
 import android.widget.SeekBar
@@ -20,6 +23,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.burhan.mscameraxsampleapp.databinding.ActivityMainBinding
+import java.lang.reflect.Type
 
 import java.text.SimpleDateFormat
 import java.util.*
@@ -36,7 +40,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var flashToggleButton : ImageButton
     private lateinit var zoomPlusButton : ImageButton
     private lateinit var zoomMinusButton : ImageButton
+    private lateinit var normalPhotoButton : Button
+    private lateinit var bokehPhotoButton : Button
     private lateinit var exposureSeekbar : SeekBar
+    private var bokehCameraSelector: CameraSelector? = null
+
+    private var bokehModeEnabled = false
 
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +58,8 @@ class MainActivity : AppCompatActivity() {
         flashToggleButton = binding.flashToggleButton
         zoomPlusButton = binding.zoomPlusButton
         zoomMinusButton = binding.zoomMinusButton
+        normalPhotoButton = binding.normalPhotoBtn
+        bokehPhotoButton = binding.bokehPhotoBtn
         exposureSeekbar = binding.exposureSeekBar
 
         supportActionBar?.hide()
@@ -138,46 +149,17 @@ class MainActivity : AppCompatActivity() {
             imageCapture = ImageCapture.Builder().build()
 
             var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            var isBokehExtensionModeAvailable = false
 
-            // For Bokeh Mode.
-            val future = ExtensionsManager.getInstanceAsync(this, cameraProvider)
-            future.addListener({
-                val extensionsManager = future.get()
-                if (extensionsManager.isExtensionAvailable(
-                                cameraSelector,
-                                ExtensionMode.BOKEH
-                        )) {
-                    val bokehCameraSelector = extensionsManager.getExtensionEnabledCameraSelector(
-                            cameraSelector,
-                            ExtensionMode.BOKEH
-                    )
-                    cameraSelector = bokehCameraSelector
-                    try {
-                        cameraProvider.unbindAll()
-                        camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
-                        startOtherFunctionality()
-                        isBokehExtensionModeAvailable = true
-                        Toast.makeText(this,"Bokeh Mode Enabled.",Toast.LENGTH_SHORT).show()
-                    } catch (e: Exception) {
-                        Log.d(Constants.TAG, "Bokeh Camera Start Fail:", e)
-                    }
-                } else {
-                    Toast.makeText(this, "Bokeh Extension Not Available!!", Toast.LENGTH_SHORT).show()
-                }
-
-            }, ContextCompat.getMainExecutor(baseContext))
 
             Log.d(Constants.TAG, "startCamera: $cameraSelector")
-
-            if(!isBokehExtensionModeAvailable){
-                try {
-                    cameraProvider.unbindAll()
-                    camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
-                    startOtherFunctionality()
-                } catch (e: Exception) {
-                    Log.d(Constants.TAG, "StartCamera Fail:", e)
-                }
+            try {
+                Toast.makeText(this, "Normal Camera", Toast.LENGTH_SHORT).show()
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                bokehModeEnabled = false
+                startOtherFunctionality()
+            } catch (e: Exception) {
+                Log.d(Constants.TAG, "StartCamera Fail:", e)
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -200,6 +182,14 @@ class MainActivity : AppCompatActivity() {
 
         zoomPlusButton.setOnClickListener{
             adjustZoom(true)
+        }
+
+        normalPhotoButton.setOnClickListener{
+            enableNormalMode()
+        }
+
+        bokehPhotoButton.setOnClickListener{
+            enableBokehMode()
         }
 
         var exposureState = camera?.cameraInfo?.exposureState
@@ -263,6 +253,112 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    @SuppressLint("ResourceAsColor")
+    private fun enableBokehMode() {
+        if(bokehModeEnabled){
+            return
+        }
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+        val preview: Preview = Preview.Builder().build()
+
+        preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+        imageCapture = ImageCapture.Builder().build()
+        if(bokehCameraSelector == null){
+
+            cameraProviderFuture.addListener({
+                var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                Log.d(Constants.TAG, "startCamera: $cameraSelector")
+
+                val future = ExtensionsManager.getInstanceAsync(this, cameraProvider)
+                future.addListener({
+                    val extensionsManager = future.get()
+                    if (extensionsManager.isExtensionAvailable(
+                            cameraSelector,
+                            ExtensionMode.BOKEH
+                        )) {
+                        bokehCameraSelector = extensionsManager.getExtensionEnabledCameraSelector(
+                            cameraSelector,
+                            ExtensionMode.BOKEH
+                        )
+                        try {
+                            cameraProvider.unbindAll()
+                            camera = cameraProvider.bindToLifecycle(this,
+                                bokehCameraSelector!!, preview, imageCapture)
+                            bokehModeEnabled = true
+
+                            bokehPhotoButton.setTextColor(R.color.white)
+                            bokehPhotoButton.setTypeface(null,Typeface.BOLD)
+
+                            normalPhotoButton.setTextColor(R.color.black)
+                            normalPhotoButton.setTypeface(null, Typeface.NORMAL)
+
+                            Toast.makeText(this, "Bokeh Mode Enabled.", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Log.d(Constants.TAG, "Bokeh Camera Start Fail:", e)
+                        }
+                    } else {
+                        Toast.makeText(this, "Bokeh Extension Not Available!!", Toast.LENGTH_SHORT).show()
+                    }
+
+                }, ContextCompat.getMainExecutor(baseContext))
+            }, ContextCompat.getMainExecutor(this))
+        }else{
+            try {
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(this,
+                    bokehCameraSelector!!, preview, imageCapture)
+                bokehModeEnabled = true
+
+                bokehPhotoButton.setTextColor(R.color.white)
+                bokehPhotoButton.setTypeface(null,Typeface.BOLD)
+
+                normalPhotoButton.setTextColor(R.color.black)
+                normalPhotoButton.setTypeface(null, Typeface.NORMAL)
+
+                Toast.makeText(this, "Bokeh Mode Enabled.", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.d(Constants.TAG, "Bokeh Camera Start Fail:", e)
+            }
+        }
+
+    }
+
+    @SuppressLint("ResourceAsColor")
+    private fun enableNormalMode() {
+        if(!bokehModeEnabled){
+            return
+        }
+
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+            val preview: Preview = Preview.Builder().build()
+
+            preview.setSurfaceProvider(binding.viewFinder.surfaceProvider)
+            imageCapture = ImageCapture.Builder().build()
+
+            var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            Log.d(Constants.TAG, "startCamera: $cameraSelector")
+
+            try {
+                Toast.makeText(this, "Normal Camera", Toast.LENGTH_SHORT).show()
+                cameraProvider.unbindAll()
+                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
+                bokehModeEnabled = false
+
+                normalPhotoButton.setTextColor(R.color.white)
+                normalPhotoButton.setTypeface(null,Typeface.BOLD)
+
+                bokehPhotoButton.setTextColor(R.color.black)
+                bokehPhotoButton.setTypeface(null, Typeface.NORMAL)
+            } catch (e: Exception) {
+                Log.d(Constants.TAG, "StartCamera Fail:", e)
+            }
+        }, ContextCompat.getMainExecutor(this))
+    }
+
     private fun takePhoto() {
         val imageCapture = imageCapture ?: return
 
@@ -308,32 +404,27 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onImageSaved(output: ImageCapture.OutputFileResults){
-                    val msg = "Photo capture succeeded: ${output.savedUri}"
+                    val msg = "Photo Saved!"
                     Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
                     Log.d(Constants.TAG, msg)
-
-                    val apiVersion = Build.VERSION.SDK_INT
-
-
-
                 }
             }
         )
 
     }
 
-        private fun allPermissionGranted(): Boolean {
-            for (permission in Constants.REQUIRED_PERMISSION) {
-                if (ActivityCompat.checkSelfPermission(
-                        baseContext,
-                        permission
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    return false
-                }
+    private fun allPermissionGranted(): Boolean {
+        for (permission in Constants.REQUIRED_PERMISSION) {
+            if (ActivityCompat.checkSelfPermission(
+                    baseContext,
+                    permission
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return false
             }
-            return true
         }
+        return true
+    }
 
     @RequiresApi(Build.VERSION_CODES.P)
     override fun onRequestPermissionsResult(
